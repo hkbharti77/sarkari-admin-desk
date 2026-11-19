@@ -1,0 +1,6 @@
+{
+  "name": "GovJob Admin — Public Sector Recruitment Console",
+  "description": "Enterprise administration console for civil service recruitment pipelines, candidate dossier scrutiny, vacancy requisitions, and examination result publishing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
