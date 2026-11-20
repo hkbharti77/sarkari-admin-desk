@@ -22,6 +22,7 @@ import { LoginPage } from './components/LoginPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getOfficerInitials, formatOfficerRole } from './utils/authLogic';
 import { api, API_BASE_URL } from './services/api';
+import { RequisitionRosterTable } from './components/RequisitionRosterTable';
 import {
   Landmark,
   LayoutDashboard,
@@ -42,14 +43,20 @@ import {
   Wifi,
   WifiOff,
   LogOut,
+  Pencil,
+  Eye,
+  Trash2,
+  BarChart3,
+  Table as TableIcon,
+  Layers,
 } from 'lucide-react';
 
-type ActiveTab = 'pipelines' | 'publish' | 'scrutiny' | 'results' | 'design-spec';
+type ActiveTab = 'pipelines' | 'publish' | 'results' | 'design-spec';
+type PipelineSubView = 'table' | 'dashboard' | 'combined';
 
 const TAB_TO_PATH: Record<ActiveTab, string> = {
   pipelines: '/pipelines',
   publish: '/publish',
-  scrutiny: '/scrutiny',
   results: '/results',
   'design-spec': '/design-spec',
 };
@@ -57,7 +64,6 @@ const TAB_TO_PATH: Record<ActiveTab, string> = {
 const TAB_TITLES: Record<ActiveTab, string> = {
   pipelines: 'Recruitment Pipelines | GovJob Admin Console',
   publish: 'Publish Notification | GovJob Admin Console',
-  scrutiny: 'Candidate Scrutiny Queue | GovJob Admin Console',
   results: 'Exams & Result Gazette | GovJob Admin Console',
   'design-spec': 'Design System & Tokens | GovJob Admin Console',
 };
@@ -69,9 +75,9 @@ const PATH_TO_TAB: Record<string, ActiveTab> = {
   publish: 'publish',
   'publish-notification': 'publish',
   notification: 'publish',
-  scrutiny: 'scrutiny',
-  'scrutiny-queue': 'scrutiny',
-  candidates: 'scrutiny',
+  scrutiny: 'pipelines',
+  'scrutiny-queue': 'pipelines',
+  candidates: 'pipelines',
   results: 'results',
   result: 'results',
   'result-gazette': 'results',
@@ -97,15 +103,18 @@ function getTabFromUrl(): ActiveTab {
 
 const STATUS_TABS: Array<{ label: string; value: PipelineStatus | 'ALL' }> = [
   { label: 'All Requisitions', value: 'ALL' },
+  { label: 'Application Open / Active', value: 'Application Open / Active' },
   { label: 'Admit Card / Active', value: 'Admit Card / Active' },
-  { label: 'Pending / Scrutiny', value: 'Pending / Scrutiny' },
+  { label: 'Answer Key Out', value: 'Answer Key Out' },
   { label: 'Result Announced', value: 'Result Announced' },
+  { label: 'Pending / Scrutiny', value: 'Pending / Scrutiny' },
   { label: 'Rejected / Cancelled', value: 'Rejected / Cancelled' },
 ];
 
 function AdminConsole() {
   const { user, isAuthenticated, isLoading: isAuthLoading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>(getTabFromUrl);
+  const [pipelineSubView, setPipelineSubView] = useState<PipelineSubView>('table');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navigateToTab = (tab: ActiveTab, replace = false) => {
@@ -192,6 +201,7 @@ function AdminConsole() {
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [editingJob, setEditingJob] = useState<RecruitmentNotification | null>(null);
 
   const kpi = useMemo(
     () => calculateKpiSummary(notifications, candidates),
@@ -260,22 +270,117 @@ function AdminConsole() {
     try {
       const created = await api.createJob(input, id, gazetteRef);
       setNotifications((prev) => [created, ...prev]);
+      const isDraft = input.status === 'Pending / Scrutiny';
       await appendAuditLog(
-        `Published new Gazette recruitment requisition (${input.advtNo}) for ${input.vacancies} sanctioned vacancies`,
+        isDraft
+          ? `Saved Gazette recruitment requisition as Internal Draft (${input.advtNo}) for ${input.vacancies} vacancies`
+          : `Published new Gazette recruitment requisition (${input.advtNo}) for ${input.vacancies} sanctioned vacancies`,
         id,
         input.status
       );
       setExportNotice(
-        `Published Gazette Notification "${input.advtNo}" (${input.vacancies.toLocaleString('en-IN')} vacancies) successfully to live database.`
+        isDraft
+          ? `Saved Requisition Draft "${input.advtNo}" (${input.vacancies.toLocaleString('en-IN')} vacancies) to Drafts. Status: Pending / Scrutiny (Not published to public portal).`
+          : `Published Gazette Notification "${input.advtNo}" (${input.vacancies.toLocaleString('en-IN')} vacancies) successfully to live portal.`
       );
     } catch (err: any) {
       console.error('API createJob error:', err);
-      setExportNotice(`Failed to publish requisition: ${err?.message || 'Server connection error'}`);
+      setExportNotice(`Failed to save requisition: ${err?.message || 'Server connection error'}`);
     }
 
     navigateToTab('pipelines');
     setStatusFilter('ALL');
     setDepartmentFilter('ALL');
+    setTimeout(() => setExportNotice(null), 5000);
+  };
+
+  const handleStartEdit = (job: RecruitmentNotification) => {
+    setEditingJob(job);
+    navigateToTab('publish');
+  };
+
+  const handleUpdateNotification = async (
+    id: string,
+    input: NewNotificationInput
+  ) => {
+    const matched = notifications.find((item) => item.id === id);
+    try {
+      await api.updateJob(id, {
+        advtNo: input.advtNo,
+        postTitle: input.postTitle,
+        department: input.department,
+        payLevel: input.payLevel,
+        vacancies: input.vacancies,
+        categoryBreakdown: input.categoryBreakdown,
+        startDate: input.startDate,
+        deadlineDate: input.deadlineDate,
+        examDate: input.examDate,
+        status: input.status,
+        applicationFees: input.applicationFees,
+        qualificationSummary: input.qualificationSummary,
+        ageLimitSummary: input.ageLimitSummary,
+        postBreakdown: input.postBreakdown,
+        applyOnlineUrl: input.applyOnlineUrl,
+        officialNoticePdfUrl: input.officialNoticePdfUrl,
+        officialWebsiteUrl: input.officialWebsiteUrl,
+        admitCardUrl: input.admitCardUrl,
+        answerKeyUrl: input.answerKeyUrl,
+        syllabusUrl: input.syllabusUrl,
+        selectionStages: input.selectionStages,
+        description: input.description,
+        faqs: input.faqs,
+        mongoId: (matched as any)?._id,
+      });
+
+      setNotifications((prev) => {
+        const exists = prev.some((item) => item.id === id || (item as any)._id === id);
+        if (exists) {
+          return prev.map((item) =>
+            item.id === id || (item as any)._id === id
+              ? {
+                  ...item,
+                  ...input,
+                  categoryBreakdown:
+                    input.categoryBreakdown ||
+                    item.categoryBreakdown || { UR: 0, OBC: 0, SC: 0, ST: 0, EWS: 0 },
+                }
+              : item
+          );
+        }
+        return [
+          {
+            id,
+            ...input,
+            categoryBreakdown:
+              input.categoryBreakdown || { UR: 0, OBC: 0, SC: 0, ST: 0, EWS: 0 },
+            gazetteRef: `GSR-${prev.length + 1}(E)/${new Date().getFullYear()}`,
+            applicationsReceived: 0,
+            scrutinyPending: 0,
+            cutoffMarks: { UR: 0, OBC: 0, SC: 0, ST: 0, EWS: 0 },
+            admitCardsReleased: 0,
+          } as RecruitmentNotification,
+          ...prev,
+        ];
+      });
+
+      await appendAuditLog(
+        `Updated official details and requisition parameters for ${id} (${input.advtNo})`,
+        id,
+        input.status
+      );
+
+      setExportNotice(
+        `Updated Gazette Notification "${input.advtNo}" (${input.postTitle}) successfully.`
+      );
+    } catch (err: any) {
+      console.error('API updateJob error:', err);
+      setExportNotice(
+        `Failed to update notification: ${err?.message || 'Server connection error'}`
+      );
+    }
+
+    setEditingJob(null);
+    navigateToTab('pipelines');
     setTimeout(() => setExportNotice(null), 5000);
   };
 
@@ -322,6 +427,33 @@ function AdminConsole() {
       id,
       nextStatus
     );
+    setTimeout(() => setExportNotice(null), 4000);
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    const matched = notifications.find((item) => item.id === id);
+    const label = matched ? `${matched.advtNo} (${matched.postTitle})` : id;
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete this recruitment requisition?\n\n• ${label}\n• Sanctioned Vacancies: ${matched?.vacancies || 0}\n\nThis will remove it from the database and public portal.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api.deleteJob(id);
+      setNotifications((prev) => prev.filter((item) => item.id !== id));
+      await appendAuditLog(
+        `Permanently deleted recruitment requisition ${id} (${matched?.advtNo || ''})`,
+        id,
+        'Rejected / Cancelled'
+      );
+      setExportNotice(`Requisition "${label}" deleted successfully.`);
+    } catch (err: any) {
+      console.error('API deleteJob error:', err);
+      setExportNotice(`Failed to delete requisition: ${err?.message || 'Server error'}`);
+    }
     setTimeout(() => setExportNotice(null), 4000);
   };
 
@@ -385,7 +517,11 @@ function AdminConsole() {
     );
   };
 
-  const handleSelectAllVisible = () => {
+  const handleSelectAllVisible = (ids?: string[]) => {
+    if (Array.isArray(ids)) {
+      setSelectedIds(ids);
+      return;
+    }
     const visibleIds = filteredNotifications.map((n) => n.id);
     const allSelected =
       visibleIds.length > 0 &&
@@ -480,13 +616,6 @@ function AdminConsole() {
       label: 'Recruitment Pipelines',
       shortLabel: 'Pipelines',
       icon: LayoutDashboard,
-    },
-    {
-      id: 'scrutiny',
-      label: 'Candidate Scrutiny Queue',
-      shortLabel: 'Scrutiny',
-      icon: UserCheck,
-      badge: pendingDossierCount,
     },
     {
       id: 'results',
@@ -767,7 +896,10 @@ function AdminConsole() {
             {/* Primary Action Button - Guaranteed 100% visible and unclipped */}
             <button
               type="button"
-              onClick={() => navigateToTab('publish')}
+              onClick={() => {
+                setEditingJob(null);
+                navigateToTab('publish');
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-[4px] bg-[#12305A] text-white text-[13px] sm:text-[14px] leading-[18px] font-semibold hover:bg-[#1C4478] active:bg-[#0D2240] transition-colors whitespace-nowrap shrink-0 shadow-xs"
             >
               <Plus className="w-4 h-4 text-[#F5B544]" aria-hidden="true" />
@@ -790,8 +922,6 @@ function AdminConsole() {
                   'Public Sector Recruitment & Examination Pipelines'}
                 {activeTab === 'publish' &&
                   'Publish Official Recruitment Notification'}
-                {activeTab === 'scrutiny' &&
-                  'Candidate Dossier Scrutiny & Credential Verification'}
                 {activeTab === 'results' &&
                   'Examination Cutoff Calibration & Result Gazette Center'}
                 {activeTab === 'design-spec' &&
@@ -809,14 +939,15 @@ function AdminConsole() {
                   <Download className="w-4 h-4 text-[#667085]" aria-hidden="true" />
                   <span>Export CSV Roster</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => navigateToTab('scrutiny')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-[4px] bg-[#F5B544] text-[#172033] text-[12px] sm:text-[13px] font-semibold hover:bg-[#E5A330] transition-colors whitespace-nowrap shrink-0"
+                <a
+                  href="http://localhost:5173"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-[#12305A] text-white text-[12px] sm:text-[13px] font-semibold hover:bg-[#1C4478] transition-colors whitespace-nowrap shrink-0 shadow-xs"
                 >
-                  <UserCheck className="w-4 h-4" aria-hidden="true" />
-                  <span>Review Scrutiny Queue ({pendingDossierCount})</span>
-                </button>
+                  <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
+                  <span>View Citizen Portal</span>
+                </a>
               </div>
             )}
           </div>
@@ -830,471 +961,286 @@ function AdminConsole() {
             </div>
           )}
 
-          {/* Persistent 4-Card KPI Strip across operational views */}
-          {activeTab !== 'publish' && (
-            <KpiStrip
-              kpi={kpi}
-              activeStatusFilter={statusFilter}
-              onSelectChannel={(nextStatus) => {
+          {/* Persistent 4-Card KPI Strip: Shown across operational views OR when in Dashboard / Combined view on Pipelines */}
+          {activeTab !== 'publish' &&
+            (activeTab !== 'pipelines' ||
+              pipelineSubView === 'dashboard' ||
+              pipelineSubView === 'combined') && (
+              <KpiStrip
+                kpi={kpi}
+                activeStatusFilter={statusFilter}
+                onSelectChannel={(nextStatus) => {
+                  navigateToTab('pipelines');
+                  setStatusFilter(nextStatus);
+                }}
+              />
+            )}
+
+          {/* Operational View 1: Master Requisition Pipelines */}
+          {activeTab === 'pipelines' && (
+            <div className="space-y-5 w-full min-w-0">
+              {/* ── Sub-View Navigation: Cleanly Separate Table vs Analytics Dashboard ── */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#E4E7EC]">
+                <div className="inline-flex items-center gap-1 bg-[#EEF2F6] p-1 rounded-[6px] border border-[#E4E7EC]">
+                  <button
+                    type="button"
+                    onClick={() => setPipelineSubView('table')}
+                    className={`px-3 py-1.5 rounded-[4px] text-[12px] font-bold flex items-center gap-2 transition-all ${
+                      pipelineSubView === 'table'
+                        ? 'bg-[#12305A] text-white shadow-2xs'
+                        : 'text-[#475467] hover:text-[#172033] hover:bg-white/60'
+                    }`}
+                  >
+                    <TableIcon className="w-4 h-4" />
+                    <span>Requisitions Roster (Table View)</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[10px] tabular-data ${
+                        pipelineSubView === 'table'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-white text-[#667085] border border-[#D0D5DD]'
+                      }`}
+                    >
+                      {notifications.length.toLocaleString('en-IN')}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPipelineSubView('dashboard')}
+                    className={`px-3 py-1.5 rounded-[4px] text-[12px] font-bold flex items-center gap-2 transition-all ${
+                      pipelineSubView === 'dashboard'
+                        ? 'bg-[#12305A] text-white shadow-2xs'
+                        : 'text-[#475467] hover:text-[#172033] hover:bg-white/60'
+                    }`}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Analytics & Quotas Dashboard</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPipelineSubView('combined')}
+                    className={`px-3 py-1.5 rounded-[4px] text-[12px] font-bold flex items-center gap-2 transition-all ${
+                      pipelineSubView === 'combined'
+                        ? 'bg-[#12305A] text-white shadow-2xs'
+                        : 'text-[#475467] hover:text-[#172033] hover:bg-white/60'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" />
+                    <span>Combined View</span>
+                  </button>
+                </div>
+
+                {/* Quick stats ticker in Table mode */}
+                {pipelineSubView === 'table' && (
+                  <div className="hidden lg:flex items-center gap-3 text-[12px] text-[#667085] tabular-data">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#12305A]" />
+                      Total Posts:{' '}
+                      <strong className="text-[#12305A] font-bold">
+                        {kpi.totalVacancies.toLocaleString('en-IN')}
+                      </strong>
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#18864B]" />
+                      Active Live:{' '}
+                      <strong className="text-[#18864B] font-bold">
+                        {kpi.activeRequisitionsCount}
+                      </strong>
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#D97706]" />
+                      Scrutiny Queue:{' '}
+                      <strong className="text-[#D97706] font-bold">
+                        {kpi.verificationPendingCount}
+                      </strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* ── 1. PAGINATED REQUISITIONS ROSTER TABLE ────────────────── */}
+              {(pipelineSubView === 'table' || pipelineSubView === 'combined') && (
+                <RequisitionRosterTable
+                  notifications={notifications}
+                  candidates={candidates}
+                  selectedIds={selectedIds}
+                  onToggleSelectRow={handleToggleSelectRow}
+                  onSelectAllVisible={handleSelectAllVisible}
+                  onClearSelection={() => setSelectedIds([])}
+                  onStatusChange={handleStatusChange}
+                  onStartEdit={handleStartEdit}
+                  onDeleteNotification={handleDeleteNotification}
+                  onBatchApproveAdmitCards={handleBatchApproveAdmitCards}
+                  onNavigateToResults={() => navigateToTab('results')}
+                  uniqueDepartments={uniqueDepartments}
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  statusFilter={statusFilter}
+                  setStatusFilter={setStatusFilter}
+                  departmentFilter={departmentFilter}
+                  setDepartmentFilter={setDepartmentFilter}
+                  onExportCsv={handleExportCsv}
+                />
+              )}
+
+              {/* ── 2. EXECUTIVE DASHBOARD: Quota Matrix + Audit Log ───────── */}
+              {(pipelineSubView === 'dashboard' || pipelineSubView === 'combined') && (
+                <div className="space-y-6 pt-2">
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full min-w-0">
+                    {/* Statutory Reservation Breakdown Card (5 Cols) */}
+                    <section
+                      aria-label="Statutory Reservation Seat Matrix"
+                      className="xl:col-span-5 elevation-1 rounded-[6px] p-5 flex flex-col justify-between w-full min-w-0 bg-white border border-[#E4E7EC]"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E4E7EC]">
+                          <div className="flex items-center gap-2">
+                            <FileSpreadsheet className="w-4 h-4 text-[#12305A]" aria-hidden="true" />
+                            <h2 className="text-[16px] leading-[24px] font-semibold text-[#172033]">
+                              Aggregate Statutory Quota Roster
+                            </h2>
+                          </div>
+                          <span className="text-[12px] font-semibold text-[#12305A] tabular-data">
+                            {kpi.totalVacancies.toLocaleString('en-IN')} Total Seats
+                          </span>
+                        </div>
+
+                        <p className="text-[12px] text-[#667085] mt-3 mb-4">
+                          Consolidated category-wise vacancy distribution across all active recruitment notifications per standard category quota guidelines.
+                        </p>
+
+                        <div className="space-y-3">
+                          {(['UR', 'OBC', 'SC', 'ST', 'EWS'] as const).map((cat) => {
+                            const catTotal = notifications
+                              .filter((n) => n.status !== 'Rejected / Cancelled')
+                              .reduce((acc, n) => acc + (n.categoryBreakdown?.[cat] ?? 0), 0);
+                            const pct =
+                              kpi.totalVacancies > 0
+                                ? Math.round((catTotal / kpi.totalVacancies) * 1000) / 10
+                                : 0;
+                            const labelMap: Record<typeof cat, string> = {
+                              UR: 'Unreserved (UR)',
+                              OBC: 'Other Backward Classes (OBC-NCL)',
+                              SC: 'Scheduled Castes (SC)',
+                              ST: 'Scheduled Tribes (ST)',
+                              EWS: 'Economically Weaker Sections (EWS)',
+                            };
+
+                            return (
+                              <div key={cat} className="space-y-1">
+                                <div className="flex items-center justify-between text-[13px] tabular-data">
+                                  <span className="font-medium text-[#172033]">
+                                    {labelMap[cat]}
+                                  </span>
+                                  <span className="font-semibold text-[#12305A]">
+                                    {catTotal.toLocaleString('en-IN')} ({pct}%)
+                                  </span>
+                                </div>
+                                <div className="w-full h-2 rounded-[2px] bg-[#F4F6FA] overflow-hidden border border-[#E4E7EC]">
+                                  <div
+                                    className="h-full bg-[#12305A]"
+                                    style={{ width: `${Math.min(100, pct)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-[#E4E7EC] flex items-center justify-between text-[12px] text-[#667085]">
+                        <span>PwBD Horizontal Quota: 4% Sanctioned</span>
+                        <button
+                          type="button"
+                          onClick={() => navigateToTab('publish')}
+                          className="font-semibold text-[#12305A] hover:underline"
+                        >
+                          + Add Requisition
+                        </button>
+                      </div>
+                    </section>
+
+                    {/* Audit & Officer Action Log (7 Cols) */}
+                    <section
+                      aria-label="Administrative Audit Activity"
+                      className="xl:col-span-7 elevation-1 rounded-[6px] p-5 flex flex-col justify-between w-full min-w-0 bg-white border border-[#E4E7EC]"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between pb-3 border-b border-[#E4E7EC]">
+                          <div className="flex items-center gap-2">
+                            <History className="w-4 h-4 text-[#12305A]" aria-hidden="true" />
+                            <h2 className="text-[16px] leading-[24px] font-semibold text-[#172033]">
+                              Institutional Audit & Gazette Log
+                            </h2>
+                          </div>
+                          <span className="text-[11px] font-mono text-[#667085]">
+                            Live Chain of Custody
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                          {auditLogs.slice(0, 8).map((log) => (
+                            <div
+                              key={log.id}
+                              className="p-2.5 rounded-[4px] border border-[#E4E7EC] bg-[#F9FAFB] text-[12px] leading-[16px] flex items-start justify-between gap-3"
+                            >
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-[#172033]">
+                                  {log.action}
+                                </div>
+                                <div className="text-[#667085] flex items-center gap-2">
+                                  <span>Officer: {log.actor}</span>
+                                  <span>·</span>
+                                  <span className="font-mono">{log.referenceId}</span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-[11px] text-[#98A2B3] tabular-data">
+                                  {log.timestamp}
+                                </div>
+                                <div className="mt-1">
+                                  <StatusBadge status={log.statusType} size="sm" />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {auditLogs.length === 0 && (
+                            <div className="py-8 text-center text-[#98A2B3] text-[12px]">
+                              No audit log entries recorded in this session.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-[#E4E7EC] flex items-center justify-between text-[11px] text-[#667085]">
+                        <span>Immutable Cryptographic Event Record</span>
+                        <span>Total Events: {auditLogs.length}</span>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* View 1b: Publish / Edit Official Recruitment Notification */}
+          {activeTab === 'publish' && (
+            <PublishNotificationPage
+              nextGazetteNumber={notifications.length + 1}
+              initialJob={editingJob}
+              onPublish={handlePublishNotification}
+              onUpdate={handleUpdateNotification}
+              onCancel={() => {
+                setEditingJob(null);
                 navigateToTab('pipelines');
-                setStatusFilter(nextStatus);
               }}
             />
           )}
 
-          {/* Operational View 1: Master Requisition Pipelines */}
-          {activeTab === 'pipelines' && (
-            <div className="space-y-6 w-full min-w-0">
-              {/* Filter Controls & Search Roster Bar */}
-              <section
-                aria-label="Filter Recruitment Pipelines"
-                className="elevation-1 rounded-[6px] p-4 space-y-4 w-full min-w-0"
-              >
-                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 w-full min-w-0">
-                  {/* Text Keyword Search Input */}
-                  <div className="relative flex-1 max-w-lg min-w-0">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#667085]">
-                      <Search className="w-4 h-4" aria-hidden="true" />
-                    </div>
-                    <input
-                      type="text"
-                      aria-label="Search notifications by post title, department, or advertisement number"
-                      placeholder="Filter by Post, Department, Advt No (e.g., UPSC, 2026/04, Civil Services)..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 text-[13px] leading-[18px] bg-white border border-[#D0D5DD] rounded-[4px] placeholder-[#98A2B3] focus:outline-none focus:ring-1 focus:ring-[#12305A] focus:border-[#12305A]"
-                    />
-                    {searchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setSearchQuery('')}
-                        aria-label="Clear keyword search"
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#667085] hover:text-[#172033]"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Commission / Department Dropdown Filter */}
-                  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <label
-                      htmlFor="department-select"
-                      className="text-[12px] sm:text-[13px] font-semibold text-[#475467] whitespace-nowrap"
-                    >
-                      Commission / Cadre:
-                    </label>
-                    <select
-                      id="department-select"
-                      value={departmentFilter}
-                      onChange={(e) => setDepartmentFilter(e.target.value)}
-                      className="px-2.5 py-1.5 sm:px-3 sm:py-2 text-[12px] sm:text-[13px] leading-[18px] bg-white border border-[#D0D5DD] rounded-[4px] text-[#172033] focus:outline-none focus:ring-1 focus:ring-[#12305A] max-w-[220px] truncate"
-                    >
-                      <option value="ALL">All Recruiting Commissions</option>
-                      {uniqueDepartments.map((dept) => (
-                        <option key={dept} value={dept}>
-                          {dept}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Status Segmented Tabs + Batch Action Bar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-[#E4E7EC] w-full min-w-0">
-                  {/* Status Pills */}
-                  <div
-                    role="tablist"
-                    aria-label="Status filters"
-                    className="flex flex-wrap items-center gap-1.5 min-w-0"
-                  >
-                    {STATUS_TABS.map((tab) => {
-                      const isActive = statusFilter === tab.value;
-                      const count =
-                        tab.value === 'ALL'
-                          ? notifications.length
-                          : notifications.filter((n) => n.status === tab.value).length;
-                      return (
-                        <button
-                          key={tab.value}
-                          type="button"
-                          role="tab"
-                          aria-selected={isActive}
-                          onClick={() => setStatusFilter(tab.value)}
-                          className={`px-3 py-1.5 text-[12px] leading-[16px] font-medium rounded-[4px] transition-colors flex items-center gap-1.5 ${
-                            isActive
-                              ? 'bg-[#12305A] text-white font-semibold'
-                              : 'bg-white border border-[#D0D5DD] text-[#475467] hover:bg-[#F4F6FA] hover:text-[#172033]'
-                          }`}
-                        >
-                          <span>{tab.label}</span>
-                          <span
-                            className={`px-1.5 py-0.2 rounded text-[10px] tabular-data ${
-                              isActive
-                                ? 'bg-white/20 text-white'
-                                : 'bg-[#F4F6FA] text-[#667085]'
-                            }`}
-                          >
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Batch Actions Button */}
-                  {selectedIds.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-medium text-[#475467] tabular-data">
-                        {selectedIds.length} requisition(s) selected
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleBatchApproveAdmitCards}
-                        className="px-3 py-1.5 rounded-[4px] bg-[#18864B] text-white text-[12px] font-semibold hover:bg-[#136A3B] transition-colors"
-                      >
-                        Batch Issue Admit Cards
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* Master Data Grid: 10-Column Institutional Table */}
-              <section
-                aria-label="Recruitment Requisitions Roster"
-                className="elevation-1 rounded-[6px] overflow-hidden w-full min-w-0"
-              >
-                <div className="overflow-x-auto w-full">
-                  <table className="w-full text-left border-collapse min-w-[850px]">
-                    <thead>
-                      <tr className="bg-[#12305A] text-white text-[12px] leading-[16px] font-semibold tracking-[0.02em] uppercase">
-                        <th className="py-3 px-3 w-[40px] text-center">
-                          <input
-                            type="checkbox"
-                            aria-label="Select all visible requisitions"
-                            checked={
-                              filteredNotifications.length > 0 &&
-                              filteredNotifications.every((n) =>
-                                selectedIds.includes(n.id)
-                              )
-                            }
-                            onChange={handleSelectAllVisible}
-                            className="rounded-[2px] text-[#12305A] focus:ring-0 focus:ring-offset-0 cursor-pointer"
-                          />
-                        </th>
-                        <th className="py-3 px-3 whitespace-nowrap">ID / Advt No</th>
-                        <th className="py-3 px-3">Post Title & Commission</th>
-                        <th className="py-3 px-3 whitespace-nowrap">Pay Scale</th>
-                        <th className="py-3 px-3 text-right whitespace-nowrap">Vacancies</th>
-                        <th className="py-3 px-3 text-right whitespace-nowrap">Applied</th>
-                        <th className="py-3 px-3 text-right whitespace-nowrap">Pending Scrutiny</th>
-                        <th className="py-3 px-3 whitespace-nowrap">Exam Date</th>
-                        <th className="py-3 px-3 whitespace-nowrap">Lifecycle Status</th>
-                        <th className="py-3 px-3 text-right whitespace-nowrap">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E4E7EC] text-[13px] leading-[18px]">
-                      {filteredNotifications.map((item) => {
-                        const isChecked = selectedIds.includes(item.id);
-                        return (
-                          <tr
-                            key={item.id}
-                            className={`transition-colors ${
-                              isChecked
-                                ? 'bg-[#EEF4FF]'
-                                : 'hover:bg-[#F9FAFB] bg-white'
-                            }`}
-                          >
-                            <td className="py-3 px-3 text-center">
-                              <input
-                                type="checkbox"
-                                aria-label={`Select requisition ${item.advtNo}`}
-                                checked={isChecked}
-                                onChange={() => handleToggleSelectRow(item.id)}
-                                className="rounded-[2px] text-[#12305A] focus:ring-0 cursor-pointer"
-                              />
-                            </td>
-                            <td className="py-3 px-3 whitespace-nowrap">
-                              <div className="font-bold text-[#12305A] tabular-data">
-                                {item.id}
-                              </div>
-                              <div className="text-[11px] text-[#667085] tabular-data font-mono">
-                                {item.advtNo}
-                              </div>
-                            </td>
-                            <td className="py-3 px-3 max-w-[280px]">
-                              <div className="font-semibold text-[#172033] line-clamp-1">
-                                {item.postTitle}
-                              </div>
-                              <div className="text-[11px] text-[#475467] line-clamp-1">
-                                {item.department}
-                              </div>
-                            </td>
-                            <td className="py-3 px-3 whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded-[3px] bg-[#F4F6FA] text-[#172033] border border-[#E4E7EC] text-[11px] font-medium tabular-data">
-                                {item.payLevel}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-right font-bold tabular-data text-[#12305A]">
-                              {item.vacancies.toLocaleString('en-IN')}
-                            </td>
-                            <td className="py-3 px-3 text-right tabular-data text-[#475467]">
-                              {item.applicationsReceived.toLocaleString('en-IN')}
-                            </td>
-                            <td className="py-3 px-3 text-right tabular-data">
-                              {item.scrutinyPending > 0 ? (
-                                <span className="font-bold text-[#B54708]">
-                                  {item.scrutinyPending.toLocaleString('en-IN')}
-                                </span>
-                              ) : (
-                                <span className="text-[#98A2B3]">—</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-3 whitespace-nowrap text-[12px] tabular-data text-[#475467]">
-                              {item.examDate || 'TBD'}
-                            </td>
-                            <td className="py-3 px-3 whitespace-nowrap">
-                              <StatusBadge status={item.status} size="sm" />
-                            </td>
-                            <td className="py-3 px-3 text-right whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                {item.status === 'Pending / Scrutiny' && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleStatusChange(item.id, 'Admit Card / Active')
-                                    }
-                                    title="Approve scrutiny and release e-Admit Cards"
-                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-[4px] bg-[#12305A] text-white hover:bg-[#1C4478] transition-colors"
-                                  >
-                                    Release Admit Card
-                                  </button>
-                                )}
-                                {item.status === 'Admit Card / Active' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigateToTab('results');
-                                    }}
-                                    title="Proceed to Results calibration"
-                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-[4px] bg-[#F5B544] text-[#172033] hover:bg-[#E5A330] transition-colors"
-                                  >
-                                    Enter Cutoffs
-                                  </button>
-                                )}
-                                {item.status === 'Result Announced' && (
-                                  <span className="text-[11px] font-semibold text-[#18864B] flex items-center gap-1 justify-end">
-                                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                                    Gazette Live
-                                  </span>
-                                )}
-                                {item.status === 'Rejected / Cancelled' && (
-                                  <span className="text-[11px] text-[#D92D20] font-medium">
-                                    Archived
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {filteredNotifications.length === 0 && (
-                        <tr>
-                          <td colSpan={10} className="py-12 text-center text-[#667085]">
-                            <div className="max-w-sm mx-auto space-y-2">
-                              <AlertTriangle className="w-8 h-8 text-[#98A2B3] mx-auto" />
-                              <div className="font-semibold text-[#172033]">
-                                No recruitment pipelines match active filters
-                              </div>
-                              <p className="text-[12px]">
-                                Try clearing your search keyword or switching the status filter tab above.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSearchQuery('');
-                                  setStatusFilter('ALL');
-                                  setDepartmentFilter('ALL');
-                                }}
-                                className="mt-2 text-[12px] font-semibold text-[#12305A] underline"
-                              >
-                                Reset all filters
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Table Footer Count Summary */}
-                <div className="bg-[#F9FAFB] border-t border-[#E4E7EC] px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[12px] text-[#667085] tabular-data w-full min-w-0">
-                  <div>
-                    Displaying <strong className="text-[#172033]">{filteredNotifications.length}</strong> of{' '}
-                    <strong className="text-[#172033]">{notifications.length}</strong> Gazette Notifications
-                  </div>
-                  <div className="truncate">
-                    Tabular Alignment: <code className="text-[#12305A] font-semibold">tnum · cv05</code> · Standard Reservation Roster Verified
-                  </div>
-                </div>
-              </section>
-
-              {/* Bottom 2-Column Analytical & Procedural Section: Quota Matrix + Live Audit Log */}
-              <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full min-w-0">
-                {/* Statutory Reservation Breakdown Card (5 Cols) */}
-                <section
-                  aria-label="Statutory Reservation Seat Matrix"
-                  className="xl:col-span-5 elevation-1 rounded-[6px] p-5 flex flex-col justify-between w-full min-w-0"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E4E7EC]">
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-[#12305A]" aria-hidden="true" />
-                        <h2 className="text-[16px] leading-[24px] font-semibold text-[#172033]">
-                          Aggregate Statutory Quota Roster
-                        </h2>
-                      </div>
-                      <span className="text-[12px] font-semibold text-[#12305A] tabular-data">
-                        {kpi.totalVacancies.toLocaleString('en-IN')} Total Seats
-                      </span>
-                    </div>
-
-                    <p className="text-[12px] text-[#667085] mt-3 mb-4">
-                      Consolidated category-wise vacancy distribution across all active recruitment notifications per standard category quota guidelines.
-                    </p>
-
-                    <div className="space-y-3">
-                      {(['UR', 'OBC', 'SC', 'ST', 'EWS'] as const).map((cat) => {
-                        const catTotal = notifications
-                          .filter((n) => n.status !== 'Rejected / Cancelled')
-                          .reduce((acc, n) => acc + (n.categoryBreakdown?.[cat] ?? 0), 0);
-                        const pct =
-                          kpi.totalVacancies > 0
-                            ? Math.round((catTotal / kpi.totalVacancies) * 1000) / 10
-                            : 0;
-                        const labelMap: Record<typeof cat, string> = {
-                          UR: 'Unreserved (UR)',
-                          OBC: 'Other Backward Classes (OBC-NCL)',
-                          SC: 'Scheduled Castes (SC)',
-                          ST: 'Scheduled Tribes (ST)',
-                          EWS: 'Economically Weaker Sections (EWS)',
-                        };
-
-                        return (
-                          <div key={cat} className="space-y-1">
-                            <div className="flex items-center justify-between text-[13px] tabular-data">
-                              <span className="font-medium text-[#172033]">
-                                {labelMap[cat]}
-                              </span>
-                              <span className="font-semibold text-[#12305A]">
-                                {catTotal.toLocaleString('en-IN')} ({pct}%)
-                              </span>
-                            </div>
-                            <div className="w-full h-2 rounded-[2px] bg-[#F4F6FA] overflow-hidden border border-[#E4E7EC]">
-                              <div
-                                className="h-full bg-[#12305A]"
-                                style={{ width: `${Math.min(100, pct)}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-5 pt-3 border-t border-[#E4E7EC] flex items-center justify-between text-[12px] text-[#667085]">
-                    <span>PwBD Horizontal Quota: 4% Sanctioned</span>
-                    <button
-                      type="button"
-                      onClick={() => navigateToTab('publish')}
-                      className="font-semibold text-[#12305A] hover:underline"
-                    >
-                      + Add Requisition
-                    </button>
-                  </div>
-                </section>
-
-                {/* Audit & Officer Action Log (7 Cols) */}
-                <section
-                  aria-label="Administrative Audit Activity"
-                  className="xl:col-span-7 elevation-1 rounded-[6px] p-5 flex flex-col justify-between w-full min-w-0"
-                >
-                  <div>
-                    <div className="flex items-center justify-between pb-3 border-b border-[#E4E7EC]">
-                      <div className="flex items-center gap-2">
-                        <History className="w-4 h-4 text-[#12305A]" aria-hidden="true" />
-                        <h2 className="text-[16px] leading-[24px] font-semibold text-[#172033]">
-                          Institutional Audit & Gazette Log
-                        </h2>
-                      </div>
-                      <span className="text-[11px] font-mono text-[#667085]">
-                        Live Chain of Custody
-                      </span>
-                    </div>
-
-                    <div className="mt-4 space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                      {auditLogs.slice(0, 8).map((log) => (
-                        <div
-                          key={log.id}
-                          className="p-2.5 rounded-[4px] border border-[#E4E7EC] bg-[#F9FAFB] text-[12px] leading-[16px] flex items-start justify-between gap-3"
-                        >
-                          <div className="space-y-0.5">
-                            <div className="font-semibold text-[#172033]">
-                              {log.action}
-                            </div>
-                            <div className="text-[#667085] flex items-center gap-2">
-                              <span>Officer: {log.actor}</span>
-                              <span>·</span>
-                              <span className="font-mono">{log.referenceId}</span>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <div className="text-[11px] text-[#98A2B3] tabular-data">
-                              {log.timestamp}
-                            </div>
-                            <div className="mt-1">
-                              <StatusBadge status={log.statusType} size="sm" />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {auditLogs.length === 0 && (
-                        <div className="py-8 text-center text-[#98A2B3] text-[12px]">
-                          No audit log entries recorded in this session.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-[#E4E7EC] flex items-center justify-between text-[11px] text-[#667085]">
-                    <span>Immutable Cryptographic Event Record</span>
-                    <span>Total Events: {auditLogs.length}</span>
-                  </div>
-                </section>
-              </div>
-            </div>
-          )}
-
-          {/* View 1b: Publish Official Recruitment Notification */}
-          {activeTab === 'publish' && (
-            <PublishNotificationPage
-              nextGazetteNumber={notifications.length + 1}
-              onPublish={handlePublishNotification}
-              onCancel={() => navigateToTab('pipelines')}
-            />
-          )}
-
-          {/* View 2: Candidate Scrutiny Queue */}
-          {activeTab === 'scrutiny' && (
-            <ScrutinyQueueView
-              candidates={candidates}
-              onUpdateCandidate={handleUpdateCandidate}
-            />
-          )}
-
-          {/* View 3: Examination Cutoff & Result Gazette Publishing */}
+          {/* View 2: Examination Cutoff & Result Gazette Publishing */}
           {activeTab === 'results' && (
             <ResultPublishingView
               notifications={notifications}

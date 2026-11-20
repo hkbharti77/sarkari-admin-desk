@@ -32,14 +32,19 @@ class ApiService {
   private authErrorListeners: AuthErrorListener[] = [];
 
   constructor() {
-    this.token = localStorage.getItem(TOKEN_KEY);
-    const storedUser = localStorage.getItem(USER_KEY);
-    if (storedUser) {
-      try {
-        this.currentUser = JSON.parse(storedUser);
-      } catch {
-        this.currentUser = null;
+    try {
+      this.token = typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+      const storedUser = typeof localStorage !== 'undefined' ? localStorage.getItem(USER_KEY) : null;
+      if (storedUser) {
+        try {
+          this.currentUser = JSON.parse(storedUser);
+        } catch {
+          this.currentUser = null;
+        }
       }
+    } catch {
+      this.token = null;
+      this.currentUser = null;
     }
   }
 
@@ -312,13 +317,20 @@ class ApiService {
     status?: string;
     department?: string;
     keyword?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }): Promise<RecruitmentNotification[]> {
     const query = new URLSearchParams();
     if (params?.status && params.status !== 'ALL') query.set('status', params.status);
     if (params?.department && params.department !== 'ALL')
       query.set('department', params.department);
     if (params?.keyword) query.set('keyword', params.keyword);
-    query.set('limit', '100');
+    if (params?.page) query.set('page', String(params.page));
+    query.set('limit', String(params?.limit || 5000));
+    if (params?.sortBy) query.set('sortBy', params.sortBy);
+    if (params?.sortOrder) query.set('sortOrder', params.sortOrder);
 
     const res = await this.request<{ data: any[] }>(`/admin/jobs?${query.toString()}`);
     const items = Array.isArray(res) ? res : res.data || [];
@@ -348,6 +360,9 @@ class ApiService {
       applyOnlineUrl: item.applyOnlineUrl,
       officialNoticePdfUrl: item.officialNoticePdfUrl,
       officialWebsiteUrl: item.officialWebsiteUrl,
+      admitCardUrl: item.admitCardUrl,
+      answerKeyUrl: item.answerKeyUrl,
+      syllabusUrl: item.syllabusUrl,
       selectionStages: item.selectionStages,
       description: item.description,
       faqs: item.faqs,
@@ -381,6 +396,7 @@ class ApiService {
       ministryCode: (input as any).ministryCode || derivedMinistry,
       payLevel: input.payLevel,
       vacancies: input.vacancies,
+      categoryBreakdown: input.categoryBreakdown,
       startDate: input.startDate || undefined,
       deadlineDate: input.deadlineDate,
       examDate:
@@ -396,6 +412,9 @@ class ApiService {
       applyOnlineUrl: input.applyOnlineUrl?.trim() || undefined,
       officialNoticePdfUrl: input.officialNoticePdfUrl?.trim() || undefined,
       officialWebsiteUrl: input.officialWebsiteUrl?.trim() || undefined,
+      admitCardUrl: input.admitCardUrl?.trim() || undefined,
+      answerKeyUrl: input.answerKeyUrl?.trim() || undefined,
+      syllabusUrl: input.syllabusUrl?.trim() || undefined,
       selectionStages: input.selectionStages,
       description: input.description?.trim() || undefined,
       faqs: input.faqs,
@@ -431,6 +450,9 @@ class ApiService {
       applyOnlineUrl: res.applyOnlineUrl || input.applyOnlineUrl,
       officialNoticePdfUrl: res.officialNoticePdfUrl || input.officialNoticePdfUrl,
       officialWebsiteUrl: res.officialWebsiteUrl || input.officialWebsiteUrl,
+      admitCardUrl: res.admitCardUrl || input.admitCardUrl,
+      answerKeyUrl: res.answerKeyUrl || input.answerKeyUrl,
+      syllabusUrl: res.syllabusUrl || input.syllabusUrl,
       selectionStages: res.selectionStages || input.selectionStages,
       description: res.description || input.description,
       faqs: res.faqs || input.faqs,
@@ -444,13 +466,52 @@ class ApiService {
     let targetId = updates.mongoId;
     if (!targetId) {
       const all = await this.getJobs();
-      const match = all.find((j: any) => j.id === id);
+      const match = all.find((j: any) => j.id === id || (j as any)?._id === id);
       targetId = (match as any)?._id || id;
     }
 
+    const { mongoId, _id, id: rawId, ...cleanUpdates } = updates as any;
+
     return this.request<any>(`/admin/jobs/${targetId}`, {
       method: 'PATCH',
-      body: JSON.stringify(updates),
+      body: JSON.stringify(cleanUpdates),
+    });
+  }
+
+  async deleteJob(id: string): Promise<any> {
+    let targetId = id;
+    try {
+      const all = await this.getJobs();
+      const match = all.find((j: any) => j.id === id);
+      if (match && (match as any)._id) {
+        targetId = (match as any)._id;
+      }
+    } catch {
+      // fallback to id
+    }
+
+    return this.request<any>(`/admin/jobs/${targetId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * AI Extraction: parses PDF base64 or copied text using backend Gemini integration
+   */
+  async extractJobWithAI(payload: {
+    text?: string;
+    pdfBase64?: string;
+    mimeType?: string;
+    apiKey?: string;
+    autoSaveDraft?: boolean;
+    forceRefresh?: boolean;
+  }): Promise<any> {
+    return this.request<any>('/admin/jobs/ai-extract', {
+      method: 'POST',
+      body: JSON.stringify({
+        autoSaveDraft: payload.autoSaveDraft ?? true,
+        ...payload,
+      }),
     });
   }
 
@@ -591,6 +652,29 @@ class ApiService {
     }));
   }
 
+  async createOrganization(org: {
+    name: string;
+    shortName: string;
+    slug?: string;
+    organizationType?: string;
+    jurisdiction?: string;
+    officialWebsite?: string;
+  }): Promise<any> {
+    const slug = org.slug || org.shortName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return this.request<any>('/admin/organizations', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: org.name,
+        shortName: org.shortName,
+        slug,
+        organizationType: org.organizationType || 'OTHER',
+        jurisdiction: org.jurisdiction || 'Government / PSU / Corporation',
+        officialWebsite: org.officialWebsite || 'https://india.gov.in',
+        isActive: true,
+      }),
+    });
+  }
+
   // ─── CSV EXPORT URL ────────────────────────────────────────────────────
 
   getCsvExportUrl(type: 'requisitions' | 'candidates'): string {
@@ -598,4 +682,6 @@ class ApiService {
   }
 }
 
+export { ApiService };
 export const api = new ApiService();
+export default api;

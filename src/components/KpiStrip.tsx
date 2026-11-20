@@ -53,15 +53,15 @@ export const KpiStrip: React.FC<KpiStripProps> = ({
     },
     {
       id: 'kpi-scrutiny',
-      label: 'Verification Pending',
+      label: 'Applications Open',
       value: kpi.verificationPendingCount.toLocaleString('en-IN'),
-      trend: 'Requires Scrutiny Before Admit Lock',
+      trend: 'Active Recruitment Windows Open',
       accentHex: '#F5B544',
       topBorderClass: 'border-t-[3px] border-t-[#F5B544]',
       icon: AlertTriangle,
       iconColor: 'text-[#D97706]',
       targetFilter: 'Pending / Scrutiny' as const,
-      badgeText: 'Priority Action',
+      badgeText: 'Open Requisitions',
     },
     {
       id: 'kpi-results',

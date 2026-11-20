@@ -1,7 +1,9 @@
 export type PipelineStatus =
+  | 'Application Open / Active'
   | 'Admit Card / Active'
-  | 'Pending / Scrutiny'
+  | 'Answer Key Out'
   | 'Result Announced'
+  | 'Pending / Scrutiny'
   | 'Rejected / Cancelled';
 
 export type ReservationCategory = 'UR' | 'OBC' | 'SC' | 'ST' | 'EWS';
@@ -58,6 +60,9 @@ export interface RecruitmentNotification {
   applyOnlineUrl?: string;
   officialNoticePdfUrl?: string;
   officialWebsiteUrl?: string;
+  admitCardUrl?: string;
+  answerKeyUrl?: string;
+  syllabusUrl?: string;
   selectionStages?: string[];
   description?: string;
   faqs?: FaqItemInput[];
@@ -116,6 +121,7 @@ export interface NewNotificationInput {
   ministryCode?: string;
   payLevel: string;
   vacancies: number;
+  categoryBreakdown?: CategoryBreakdown;
   startDate?: string;
   deadlineDate: string;
   examDate?: string;
@@ -127,6 +133,9 @@ export interface NewNotificationInput {
   applyOnlineUrl?: string;
   officialNoticePdfUrl?: string;
   officialWebsiteUrl?: string;
+  admitCardUrl?: string;
+  answerKeyUrl?: string;
+  syllabusUrl?: string;
   selectionStages?: string[];
   description?: string;
   faqs?: FaqItemInput[];
